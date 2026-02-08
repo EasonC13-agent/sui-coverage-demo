@@ -239,11 +239,80 @@ def print_json(uncovered: List[UncoveredSegment]):
     print(json.dumps(data, indent=2))
 
 
+def generate_markdown(uncovered: List[UncoveredSegment], module_name: str) -> str:
+    """Generate markdown report."""
+    lines = []
+    lines.append(f"# Coverage Report: {module_name}")
+    lines.append("")
+    
+    if not uncovered:
+        lines.append("✅ **All code is covered!**")
+        return '\n'.join(lines)
+    
+    lines.append(f"🔴 **Found {len(uncovered)} uncovered code segment(s)**")
+    lines.append("")
+    
+    # Group by line
+    by_line = {}
+    for seg in uncovered:
+        if seg.line_num not in by_line:
+            by_line[seg.line_num] = {
+                'full_line': seg.full_line,
+                'segments': []
+            }
+        by_line[seg.line_num]['segments'].append(seg)
+    
+    lines.append("## Uncovered Code")
+    lines.append("")
+    
+    for line_num in sorted(by_line.keys()):
+        info = by_line[line_num]
+        lines.append(f"### Line {line_num}")
+        lines.append("")
+        lines.append("```move")
+        lines.append(info['full_line'])
+        lines.append("```")
+        lines.append("")
+        
+        for seg in info['segments']:
+            lines.append(f"- ❌ **Uncovered:** `{seg.uncovered_text}`")
+        lines.append("")
+    
+    # Suggestions
+    lines.append("## Suggestions")
+    lines.append("")
+    
+    assertions = [s for s in uncovered if 'assert!' in s.uncovered_text]
+    func_names = [s for s in uncovered if re.match(r'^[a-z_][a-z0-9_]*$', s.uncovered_text) and len(s.uncovered_text) > 1]
+    
+    if assertions:
+        lines.append("### Test Assertion Failure Paths")
+        lines.append("")
+        for seg in assertions:
+            lines.append(f"- [ ] Line {seg.line_num}: `{seg.uncovered_text}`")
+            lines.append(f"  - Write a test where this assertion **fails**")
+        lines.append("")
+    
+    if func_names:
+        lines.append("### Call Uncovered Functions")
+        lines.append("")
+        seen = set()
+        for seg in func_names:
+            if seg.uncovered_text not in seen:
+                seen.add(seg.uncovered_text)
+                lines.append(f"- [ ] `{seg.uncovered_text}()`")
+        lines.append("")
+    
+    return '\n'.join(lines)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Analyze Sui Move source coverage')
     parser.add_argument('--module', '-m', required=True, help='Module name to analyze')
     parser.add_argument('--path', '-p', default='.', help='Package path (default: current dir)')
     parser.add_argument('--json', '-j', action='store_true', help='Output as JSON')
+    parser.add_argument('--markdown', '--md', action='store_true', help='Output as Markdown')
+    parser.add_argument('--output', '-o', help='Output file path (e.g., coverage.md)')
     args = parser.parse_args()
     
     # Run coverage command with PTY
@@ -253,10 +322,33 @@ def main():
     # Parse the colored output
     uncovered = parse_colored_output(output)
     
+    # Generate output
     if args.json:
-        print_json(uncovered)
+        result = json.dumps({
+            'uncovered_count': len(uncovered),
+            'uncovered': [
+                {
+                    'line': s.line_num,
+                    'full_line': s.full_line,
+                    'uncovered_text': s.uncovered_text,
+                }
+                for s in uncovered
+            ]
+        }, indent=2)
+    elif args.markdown or (args.output and args.output.endswith('.md')):
+        result = generate_markdown(uncovered, args.module)
     else:
+        # Default: print to console
         print_report(uncovered, args.module)
+        return
+    
+    # Output to file or stdout
+    if args.output:
+        with open(args.output, 'w') as f:
+            f.write(result)
+        print(f"Report saved to: {args.output}", file=sys.stderr)
+    else:
+        print(result)
 
 
 if __name__ == '__main__':
