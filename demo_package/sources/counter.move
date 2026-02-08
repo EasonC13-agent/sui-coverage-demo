@@ -102,12 +102,95 @@ module demo_package::counter {
         destroy(counter);
     }
 
-    // NOTE: The following functions are NOT tested:
-    // - decrement() - never called
-    // - reset() - never called  
-    // - is_at_max() - never called
-    // - increment_by() - partially tested (only one branch)
-    // - ECounterAtMax error path - never triggered
-    // - ECounterAtZero error path - never triggered
-    // - EInvalidMaxValue error path - never triggered
+    // ========== Additional Tests for Full Coverage ==========
+
+    #[test]
+    fun test_decrement() {
+        let mut ctx = tx_context::dummy();
+        let mut counter = new(100, &mut ctx);
+        increment(&mut counter);
+        increment(&mut counter);
+        assert!(value(&counter) == 2, 0);
+        decrement(&mut counter);
+        assert!(value(&counter) == 1, 0);
+        destroy(counter);
+    }
+
+    #[test]
+    fun test_reset() {
+        let mut ctx = tx_context::dummy();
+        let mut counter = new(100, &mut ctx);
+        increment(&mut counter);
+        increment(&mut counter);
+        assert!(value(&counter) == 2, 0);
+        reset(&mut counter);
+        assert!(value(&counter) == 0, 0);
+        destroy(counter);
+    }
+
+    #[test]
+    fun test_is_at_max() {
+        let mut ctx = tx_context::dummy();
+        let mut counter = new(2, &mut ctx);
+        assert!(!is_at_max(&counter), 0);
+        increment(&mut counter);
+        assert!(!is_at_max(&counter), 1);
+        increment(&mut counter);
+        assert!(is_at_max(&counter), 2);
+        destroy(counter);
+    }
+
+    #[test]
+    fun test_increment_by_normal() {
+        let mut ctx = tx_context::dummy();
+        let mut counter = new(100, &mut ctx);
+        increment_by(&mut counter, 5);
+        assert!(value(&counter) == 5, 0);
+        increment_by(&mut counter, 10);
+        assert!(value(&counter) == 15, 0);
+        destroy(counter);
+    }
+
+    #[test]
+    fun test_increment_by_overflow() {
+        let mut ctx = tx_context::dummy();
+        let mut counter = new(10, &mut ctx);
+        increment_by(&mut counter, 5);
+        assert!(value(&counter) == 5, 0);
+        // This should cap at max_value (10), not go to 20
+        increment_by(&mut counter, 15);
+        assert!(value(&counter) == 10, 1);
+        assert!(is_at_max(&counter), 2);
+        destroy(counter);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EInvalidMaxValue)]
+    fun test_new_invalid_max_value() {
+        let mut ctx = tx_context::dummy();
+        let counter = new(0, &mut ctx);  // Should fail: max_value must be > 0
+        destroy(counter);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = ECounterAtMax)]
+    fun test_increment_at_max() {
+        let mut ctx = tx_context::dummy();
+        let mut counter = new(2, &mut ctx);
+        increment(&mut counter);
+        increment(&mut counter);
+        // Counter is now at max (2), this should fail
+        increment(&mut counter);
+        destroy(counter);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = ECounterAtZero)]
+    fun test_decrement_at_zero() {
+        let mut ctx = tx_context::dummy();
+        let mut counter = new(100, &mut ctx);
+        // Counter is at 0, decrement should fail
+        decrement(&mut counter);
+        destroy(counter);
+    }
 }
